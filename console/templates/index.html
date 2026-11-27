@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MATINO X · Console</title>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#050505; color:#f3f3f3; min-height:100vh;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    header { display:flex; align-items:center; justify-content:space-between;
+      padding:18px 24px; border-bottom:1px solid #ffffff14; background:#080808; }
+    .brand { font-weight:800; letter-spacing:.6px; font-size:18px; }
+    .brand span { color:#888; font-weight:500; font-size:12px; margin-left:8px; }
+    nav { display:flex; gap:8px; padding:14px 24px; border-bottom:1px solid #ffffff14;
+      background:#080808; overflow-x:auto; }
+    nav a { color:#aaa; text-decoration:none; font-size:13px; font-weight:700;
+      padding:9px 14px; border-radius:10px; border:1px solid transparent; white-space:nowrap; }
+    nav a.on { color:#fff; background:#1b1b1b; border-color:#ffffff26; }
+    main { max-width:980px; margin:0 auto; padding:24px; }
+    .flash { background:#162a16; border:1px solid #35d03533; color:#8ce88c;
+      padding:11px 14px; border-radius:10px; font-size:13px; margin-bottom:18px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
+    .card { background:#0d0d0d; border:1px solid #ffffff1c; border-radius:18px; padding:20px; }
+    .card h2 { margin:0 0 4px; font-size:15px; letter-spacing:.5px; }
+    .card .sub { color:#888; font-size:12px; margin:0 0 18px; }
+    label { display:block; font-size:11px; color:#999; font-weight:700;
+      letter-spacing:.6px; margin:12px 0 6px; }
+    input, select, textarea { width:100%; background:#151515; color:#fff;
+      border:1px solid #ffffff22; border-radius:10px; padding:11px 12px;
+      font-size:14px; outline:none; font-family:inherit; }
+    input:focus, select:focus, textarea:focus { border-color:#ffffff66; }
+    textarea { min-height:110px; resize:vertical; }
+    button { margin-top:14px; width:100%; padding:12px; border-radius:10px;
+      background:#1c1c1c; color:#fff; border:1px solid #ffffff40;
+      font-weight:700; font-size:14px; cursor:pointer; }
+    button:hover { background:#282828; }
+    button.danger { border-color:#ff555544; color:#ff8b8b; }
+    button.ok-btn { border-color:#35d03555; color:#8ce88c; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid #ffffff12;
+      vertical-align:top; word-break:break-all; }
+    th { color:#888; font-size:11px; letter-spacing:.6px; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:20px;
+      font-size:11px; font-weight:700; }
+    .pill.ok { background:#1d3a1d; color:#8ce88c; }
+    .pill.no { background:#3a1d1d; color:#ff9a9a; }
+    .row-actions { display:flex; gap:6px; }
+    .row-actions form { flex:1; margin:0; }
+    .row-actions button { margin:0; padding:7px; font-size:11px; }
+    .empty { color:#666; font-size:13px; text-align:center; padding:20px; }
+    .logout form { margin:0; }
+    .logout button { width:auto; margin:0; padding:8px 12px; font-size:12px; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">MATINO X <span>secure console</span></div>
+  <div class="logout">
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button type="submit">LOG OUT</button>
+    </form>
+  </div>
+</header>
+<nav>
+  <a href="{{ url_for('index', tab='files') }}" class="{{ 'on' if tab=='files' }}">📦 SERVER FILE</a>
+  <a href="{{ url_for('index', tab='keys') }}" class="{{ 'on' if tab=='keys' }}">🔑 SERVER KEY</a>
+  <a href="{{ url_for('index', tab='windows') }}" class="{{ 'on' if tab=='windows' }}">🪟 WINDOWS</a>
+  <a href="{{ url_for('index', tab='control') }}" class="{{ 'on' if tab=='control' }}">📢 APP CONTROL</a>
+  <a href="{{ url_for('audit_view') }}">🛡️ AUDIT</a>
+</nav>
+<main>
+  {% with messages = get_flashed_messages() %}
+    {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  {% if tab == 'files' %}
+  <div class="grid">
+    <section class="card">
+      <h2>UPLOAD PACKAGE</h2>
+      <p class="sub">Files go to BundledFiles on GitHub; the app sees them within seconds.</p>
+      <form method="post" action="{{ url_for('file_upload') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label>FILE (.3105)</label>
+        <input type="file" name="file" accept=".3105" required>
+        <label>CATEGORY</label>
+        <select name="category">
+          <option value="">-auto-</option>
+          <option>AIM</option><option>HOLOGRAM</option><option>SKIN</option><option>MISC</option>
+        </select>
+        <label>VARIANT</label>
+        <select name="variant"><option>NORMAL</option><option>MAX</option></select>
+        <button type="submit">UPLOAD</button>
+      </form>
+    </section>
+    <section class="card">
+      <h2>BUNDLED FILES</h2>
+      <p class="sub">{{ files|length }} package(s)</p>
+      {% if files %}
+      <table><tr><th>NAME</th><th></th></tr>
+        {% for f in files %}
+        <tr>
+          <td>{{ f }}</td>
+          <td><form method="post" action="{{ url_for('file_delete') }}">
+            <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+            <input type="hidden" name="name" value="{{ f }}">
+            <button class="danger" type="submit">DELETE</button>
+          </form></td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}<div class="empty">No packages yet.</div>{% endif %}
+    </section>
+  </div>
+  {% endif %}
+
+  {% if tab == 'keys' %}
+  <div class="grid">
+    <section class="card">
+      <h2>ADD / EDIT KEY</h2>
+      <p class="sub">Choose an existing key or type a new one. Duration and status are one click.</p>
+      <form method="post" action="{{ url_for('key_save') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label>CHOOSE A KEY</label>
+        <select id="keyPicker">
+          <option value="">— new key (type below) —</option>
+          {% for k in keys %}
+          {% set f = k.fields %}
+          <option value="{{ f.get('key','') }}">{{ f.get('key') or k.name }} · {{ f.get('duration','—') }}</option>
+          {% endfor %}
+        </select>
+        <label>KEY * <span style="color:#8ce88c">(generated automatically)</span></label>
+        <div style="display:flex;gap:8px">
+          <input id="keyInput" name="key" placeholder="baypassx-XXXX-XXXX-XXXX" required>
+          <button type="button" id="genKey" style="width:auto;margin:0;padding:0 14px;white-space:nowrap">GENERATE</button>
+        </div>
+        <label>PACKAGE</label>
+        <input name="package" placeholder="MATINO X">
+        <label>DURATION</label>
+        <select name="duration">
+          <option>Lifetime</option>
+          <option>1 Hour</option>
+          <option>6 Hours</option>
+          <option>12 Hours</option>
+          <option>1 Day</option>
+          <option>7 Days</option>
+          <option>30 Days</option>
+          <option>1 Month</option>
+          <option>1 Year</option>
+        </select>
+        <label>STATUS</label>
+        <select name="status"><option>Active</option><option>Disabled</option><option>Expired</option></select>
+        <button type="submit">SAVE KEY</button>
+      </form>
+    </section>
+    <section class="card">
+      <h2>LICENSES</h2>
+      <p class="sub">{{ keys|length }} key(s) · use the button to enable / disable</p>
+      {% if keys %}
+      <table>
+        <tr><th>KEY</th><th>DURATION</th><th>DEVICE</th><th>ACTION</th></tr>
+        {% for k in keys %}
+        {% set f = k.fields %}
+        {% set active = (f.get('status','')|lower == 'active') %}
+        <tr>
+          <td><strong>{{ f.get('key') or k.name }}</strong><br><span style="color:#888">{{ f.get('package','') }}</span></td>
+          <td>{{ f.get('duration','—') }}</td>
+          <td style="font-size:11px">{{ (f.get('deviceID') or 'unbound')[:14] }}</td>
+          <td>
+            <div class="row-actions">
+              <form method="post" action="{{ url_for('key_status') }}">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+                <input type="hidden" name="doc_id" value="{{ k.name }}">
+                <input type="hidden" name="status" value="{{ 'Disabled' if active else 'Active' }}">
+                <button type="submit" class="{{ '' if active else 'ok-btn' }}">{{ 'DISABLE' if active else 'ENABLE' }}</button>
+              </form>
+              <form method="post" action="{{ url_for('key_delete') }}">
+                <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+                <input type="hidden" name="doc_id" value="{{ k.name }}">
+                <button class="danger" type="submit">DEL</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}<div class="empty">No licenses found.</div>{% endif %}
+    </section>
+  </div>
+  {% endif %}
+
+
+  {% if tab == 'control' %}
+  <div class="grid">
+    <section class="card">
+      <h2>SEND MESSAGE TO APP</h2>
+      <p class="sub">The message appears directly inside the IPA, with an optional sound.</p>
+      <form method="post" action="{{ url_for('control_save') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label>MESSAGE (for the latest IPA)</label>
+        <textarea name="message" placeholder="Type the message the app owner will see...">{{ control.get('message','') }}</textarea>
+        <label>UPDATE MESSAGE (shown on old IPAs)</label>
+        <textarea name="update_message" placeholder="You must update MATINO X to the latest version.">{{ control.get('updateMessage','') }}</textarea>
+        <label>SOUND</label>
+        <select name="sound">
+          <option value="none">None</option>
+          <option value="tap">Tap</option>
+          <option value="applied">Applied</option>
+          <option value="restored">Restored</option>
+        </select>
+        <label class="sub" style="display:flex;gap:8px;align-items:center;margin-top:14px">
+          <input type="checkbox" name="disabled" value="1" style="width:auto" {{ 'checked' if control.get('disabled') }}> Disable every installed app
+        </label>
+        <button type="submit">SEND TO APP</button>
+      </form>
+    </section>
+    <section class="card">
+      <h2>CURRENT CONTROL</h2>
+      <p class="sub">Active build: {{ control.get('activeBuildID') or '—' }}</p>
+      <label>MESSAGE</label>
+      <pre style="white-space:pre-wrap;word-break:break-word;color:#aaa;font-size:13px">{{ control.get('message') or '(none)' }}</pre>
+      <label>UPDATE MESSAGE</label>
+      <pre style="white-space:pre-wrap;word-break:break-word;color:#ffc066;font-size:13px">{{ control.get('updateMessage') or '(default)' }}</pre>
+      <label>STATE</label>
+      <p class="pill {{ 'no' if control.get('disabled') else 'ok' }}">{{ 'DISABLED' if control.get('disabled') else 'ENABLED' }}</p>
+      <p class="sub" style="margin-top:14px">Old IPAs stop working automatically when a newer build is published.</p>
+    </section>
+  </div>
+  {% endif %}
+
+  {% if tab == 'windows' %}
+  <div class="grid">
+    <section class="card">
+      <h2>NEW WINDOW</h2>
+      <p class="sub">Enter anything — notes, links, text. Saved to the repo.</p>
+      <form method="post" action="{{ url_for('window_save') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+        <label>TITLE</label>
+        <input name="title" required>
+        <label>CONTENT</label>
+        <textarea name="content" placeholder="Type anything..."></textarea>
+        <button type="submit">SAVE WINDOW</button>
+      </form>
+    </section>
+    <section class="card">
+      <h2>SAVED WINDOWS</h2>
+      <p class="sub">{{ windows|length }} window(s)</p>
+      {% if windows %}
+        {% for title, content in windows.items() %}
+        <div style="border:1px solid #ffffff18;border-radius:12px;padding:12px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>{{ title }}</strong>
+            <form method="post" action="{{ url_for('window_delete') }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <input type="hidden" name="title" value="{{ title }}">
+              <button class="danger" type="submit" style="width:auto;margin:0;padding:5px 9px">DEL</button>
+            </form>
+          </div>
+          <pre style="white-space:pre-wrap;word-break:break-word;color:#aaa;font-size:12px;margin:8px 0 0">{{ content }}</pre>
+        </div>
+        {% endfor %}
+      {% else %}<div class="empty">No windows yet.</div>{% endif %}
+    </section>
+  </div>
+  {% endif %}
+</main>
+</body>
+</html>

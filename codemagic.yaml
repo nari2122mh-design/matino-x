@@ -1,0 +1,82 @@
+# MATINO X — Codemagic workflow (free tier: 500 macOS M2 minutes / month).
+# Mirrors .github/workflows/build.yml so the IPA is identical to the
+# GitHub Actions build: embedded localizations, unsigned Release build,
+# VESPER-style padding, BundledFiles injection, then a zip Payload.
+
+workflows:
+  matino-x-ipa:
+    name: Build MATINO X IPA
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      vars:
+        APP_NAME: MATINO X
+    scripts:
+        - name: Generate embedded localization table
+          script: |
+            set -e
+            python3 generate_embedded_localizations.py
+            python3 generate_embedded_localizations.py --check
+
+        - name: Build unsigned app
+          script: |
+            set -e
+            xcodebuild \
+              -project ThreeOneOSFive.xcodeproj \
+              -target 3105 \
+              -configuration Release \
+              -sdk iphoneos \
+              SYMROOT="$PWD/build" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              build
+
+        - name: Apply VESPER-style IPA structure
+          script: |
+            set -euo pipefail
+            APP="$PWD/build/Release-iphoneos/MATINO X.app"
+            EXEC="$APP/MATINO X"
+            test -d "$APP"
+            test -f "$EXEC"
+
+            # 1. Compile the localization folders out of the bundle.
+            find "$APP" -type d -name '*.lproj' -prune -exec rm -rf {} +
+            if find "$APP" -type d -name '*.lproj' -print -quit | grep -q .; then
+              echo "Error: an .lproj folder remains inside the app bundle." >&2
+              exit 1
+            fi
+
+            # 2. Pad the executable to the 400 MiB threshold.
+            printf 'Adding 400 MiB executable padding...\n'
+            dd if=/dev/zero bs=1m count=400 >> "$EXEC" 2>/dev/null
+            EXEC_BYTES="$(wc -c < "$EXEC" | tr -d ' ')"
+            if [ "$EXEC_BYTES" -lt $((400 * 1024 * 1024)) ]; then
+              echo "Error: executable is smaller than 400 MiB: $EXEC_BYTES" >&2
+              exit 1
+            fi
+            echo "Executable size: $EXEC_BYTES bytes"
+
+            # 3. Copy BundledFiles/ (.3105) into the app bundle.
+            if [ -d "$PWD/BundledFiles" ]; then
+              find "$PWD/BundledFiles" -type f ! -name '.gitkeep' -print0 | \
+                while IFS= read -r -d '' file; do
+                  name="$(basename "$file")"
+                  cp "$file" "$APP/$name"
+                  echo "Bundled file: $name"
+                done
+            fi
+
+        - name: Package unsigned IPA
+          script: |
+            set -euo pipefail
+            APP="$PWD/build/Release-iphoneos/MATINO X.app"
+            rm -rf "$PWD/build/Payload"
+            mkdir -p "$PWD/build/Payload"
+            cp -R "$APP" "$PWD/build/Payload/"
+            cd "$PWD/build"
+            zip -9qry "MATINO X.ipa" Payload
+            ls -lh "MATINO X.ipa"
+
+    artifacts:
+      - build/MATINO X.ipa

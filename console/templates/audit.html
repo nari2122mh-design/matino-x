@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MATINO X · Audit</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; background:#050505; color:#eee; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    header { padding:18px 24px; border-bottom:1px solid #ffffff14; background:#080808; }
+    a { color:#ccc; font-size:13px; text-decoration:none; }
+    main { max-width:980px; margin:0 auto; padding:24px; }
+    h1 { font-size:18px; letter-spacing:.5px; }
+    pre { background:#0d0d0d; border:1px solid #ffffff1c; border-radius:14px;
+      padding:16px; font-size:12px; line-height:1.7; white-space:pre-wrap;
+      word-break:break-all; color:#9ecb9e; }
+  </style>
+</head>
+<body>
+<header><a href="{{ url_for('index') }}">← Console</a></header>
+<main>
+  <h1>SECURITY AUDIT · last {{ lines|length }} events</h1>
+  <pre>{% for line in lines %}{{ line }}
+{% else %}No events yet.{% endfor %}</pre>
+</main>
+</body>
+</html>

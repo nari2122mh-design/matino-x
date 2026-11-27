@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: matino-x-file-drop
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: "pip install -r site/requirements.txt"
+    startCommand: "cd site && gunicorn --bind 0.0.0.0:$PORT app:app"
+    envVars:
+      - key: SITE_PASSWORD
+        sync: false
+      - key: GH_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.0"
