@@ -1,0 +1,28 @@
+name: Runner ping
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ubuntu works"
+  ping-macos-labels:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15-large
+          - macos-15-xlarge
+          - macos-26-large
+          - macos-26-xlarge
+          - macos-15-intel
+          - macos-26
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: echo "${{ matrix.os }} works"

@@ -1,0 +1,83 @@
+name: Package IPA (no Xcode)
+
+# MATINO X: repacks the newest IPA with the current BundledFiles/ contents.
+# The macOS runner is not required for adding or removing bundled files, so
+# this workflow runs on ubuntu (starts immediately) and keeps the shipped
+# file list in sync with what the site/bot uploaded. The rule it enforces is
+# simple: the .3105 files inside Payload/MATINO X.app/ are exactly the files
+# that live in BundledFiles/.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'BundledFiles/**'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the latest IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          gh release download \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.ipa' \
+            --dir work
+          ls -lh work
+
+      - name: Replace bundled files inside Payload
+        run: |
+          set -euo pipefail
+          cd work
+          BASE="$(find . -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$BASE"
+          rm -rf unpacked
+          mkdir unpacked
+          unzip -q "$BASE" -d unpacked
+
+          APP="unpacked/Payload/MATINO X.app"
+          test -d "$APP"
+
+          # Everything currently inside the bundle goes away...
+          find "$APP" -maxdepth 1 -type f -name '*.3105' -delete
+
+          # ...and only what BundledFiles/ holds is put back.
+          if [ -d "$GITHUB_WORKSPACE/BundledFiles" ]; then
+            find "$GITHUB_WORKSPACE/BundledFiles" -type f -name '*.3105' -print0 | \
+              while IFS= read -r -d '' file; do
+                name="$(basename "$file")"
+                cp "$file" "$APP/$name"
+                echo "Bundled file: $name"
+              done
+          fi
+
+          echo "--- files inside the app ---"
+          find "$APP" -maxdepth 1 -type f -name '*.3105' -printf '%f\n'
+
+          cd unpacked
+          rm -f "../MATINO X.ipa"
+          zip -9qry "../MATINO X.ipa" Payload
+          ls -lh "../MATINO X.ipa"
+
+      - name: Publish IPA release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="matino-x-build-${GITHUB_RUN_ID}"
+          gh release create "$TAG" "work/MATINO X.ipa" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "MATINO X Build ${GITHUB_RUN_ID}" \
+            --notes "Repacked from the previous IPA with the current BundledFiles/ (${GITHUB_SHA})." \
+            --target "$GITHUB_SHA"
