@@ -102,10 +102,13 @@ final class PatchProjectStore: ObservableObject {
     private static let remoteListCacheKey = "patch.remote_list_cache"
     /// MATINO X: comments file mirrored from BundledFiles/comments.json.
     private static let remoteCommentsKey = "patch.remote_comments"
-    private static let remoteCommentsURL = "https://raw.githubusercontent.com/\(remoteRepo)/main/\(remoteDirectory)/comments.json"
+    // GitHub Contents API instead of raw.githubusercontent: raw is cached by
+    // a CDN for minutes, so a comment/name changed on the site would not show
+    // up in the app. The API always returns the current blob.
+    private static let remoteCommentsURL = "https://api.github.com/repos/\(remoteRepo)/contents/\(remoteDirectory)/comments.json?ref=main"
     /// MATINO X: display names mirrored from BundledFiles/names.json.
     private static let remoteNamesKey = "patch.remote_names"
-    private static let remoteNamesURL = "https://raw.githubusercontent.com/\(remoteRepo)/main/\(remoteDirectory)/names.json"
+    private static let remoteNamesURL = "https://api.github.com/repos/\(remoteRepo)/contents/\(remoteDirectory)/names.json?ref=main"
 
     private struct RemotePackage: Decodable {
         let name: String
@@ -159,11 +162,16 @@ final class PatchProjectStore: ObservableObject {
         )]
         guard let url = components.url else { return }
         var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("matino-x-app", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
         request.cachePolicy = .reloadIgnoringLocalCacheData
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-        guard let map = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        guard let envelope = try? JSONDecoder().decode(
+            ["content": String].self, from: data
+        ), let decoded = Data(base64Encoded: envelope["content"] ?? ""),
+              let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
         UserDefaults.standard.set(map, forKey: remoteCommentsKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
     }
@@ -177,11 +185,16 @@ final class PatchProjectStore: ObservableObject {
         )]
         guard let url = components.url else { return }
         var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("matino-x-app", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
         request.cachePolicy = .reloadIgnoringLocalCacheData
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-        guard let map = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        guard let envelope = try? JSONDecoder().decode(
+            ["content": String].self, from: data
+        ), let decoded = Data(base64Encoded: envelope["content"] ?? ""),
+              let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
         UserDefaults.standard.set(map, forKey: remoteNamesKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
     }
