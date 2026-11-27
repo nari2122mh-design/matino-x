@@ -329,8 +329,19 @@ def load_json(path: str) -> dict:
 
 
 def save_json(path: str, obj: dict, message: str) -> bool:
-    return gh_put_file(path, json.dumps(obj, ensure_ascii=False, indent=2).encode(),
-                       message + " [skip ci]")
+    # Re-read the current SHA immediately before writing so a save that
+    # follows another one never overwrites with a stale blob.
+    _, sha = gh_get_file(path)
+    payload = {
+        "message": message + " [skip ci]",
+        "content": base64.b64encode(
+            json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+        ).decode("ascii"),
+        "branch": BRANCH,
+    }
+    if sha:
+        payload["sha"] = sha
+    return gh_request(f"{GH_API}/contents/{urllib.parse.quote(path)}", "PUT", payload) is not None
 
 
 def latest_build_id() -> str:
