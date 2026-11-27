@@ -467,9 +467,12 @@ def index():
     keys = fs_list() if tab == "keys" else []
     windows = load_json("BundledFiles/windows.json") if tab == "windows" else {}
     control = load_json("BundledFiles/app_control.json") if tab == "control" else {}
+    comments = load_json("BundledFiles/comments.json") if tab == "files" else {}
+    names = load_json("BundledFiles/names.json") if tab == "files" else {}
 
     return render_template("index.html", tab=tab, files=files, keys=keys,
-                           windows=windows, control=control)
+                           windows=windows, control=control,
+                           comments=comments, names=names)
 
 
 @app.route("/file/upload", methods=["POST"])
@@ -506,6 +509,37 @@ def file_delete():
         ok = gh_delete_file(f"BundledFiles/{name}", f"Remove bundled file: {name}")
         audit("file_delete", name, alert=True)
         flash(f"{name} deleted." if ok else f"{name}: deletion failed.")
+    return redirect(url_for("index", tab="files"))
+
+
+@app.route("/file/meta", methods=["POST"])
+def file_meta():
+    """Save the comment + display name shown under a package in the app."""
+    if not logged_in():
+        return redirect(url_for("index"))
+    name = safe_name(request.form.get("name", ""))
+    if not name.lower().endswith(".3105"):
+        flash("Invalid file name.")
+        return redirect(url_for("index", tab="files"))
+
+    comment = request.form.get("comment", "").strip()[:300]
+    display = request.form.get("display_name", "").strip()[:100]
+
+    comments = load_json("BundledFiles/comments.json")
+    names = load_json("BundledFiles/names.json")
+    # Keep both key forms in sync so lookup works with or without extension.
+    stem = name.rsplit(".", 1)[0]
+    for key in (name, stem):
+        comments.pop(key, None)
+        names.pop(key, None)
+    if comment:
+        comments[name] = comment
+    if display:
+        names[name] = display
+    ok_c = save_json("BundledFiles/comments.json", comments, "Update comments")
+    ok_n = save_json("BundledFiles/names.json", names, "Update display names")
+    audit("file_meta", f"{name} comment={bool(comment)} name={bool(display)}", alert=True)
+    flash("Saved." if (ok_c and ok_n) else "Save failed (check GH_TOKEN).")
     return redirect(url_for("index", tab="files"))
 
 
