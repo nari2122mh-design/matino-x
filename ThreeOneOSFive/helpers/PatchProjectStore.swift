@@ -110,6 +110,10 @@ final class PatchProjectStore: ObservableObject {
     private static let remoteNamesKey = "patch.remote_names"
     private static let remoteNamesURL = "https://api.github.com/repos/\(remoteRepo)/contents/\(remoteDirectory)/names.json?ref=main"
 
+    private struct ContentEnvelope: Decodable {
+        let content: String
+    }
+
     private struct RemotePackage: Decodable {
         let name: String
         let type: String
@@ -169,8 +173,8 @@ final class PatchProjectStore: ObservableObject {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
         guard let envelope = try? JSONDecoder().decode(
-            ["content": String].self, from: data
-        ), let decoded = Data(base64Encoded: envelope["content"] ?? ""),
+            ContentEnvelope.self, from: data
+        ), let decoded = Data(base64Encoded: envelope.content),
               let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
         UserDefaults.standard.set(map, forKey: remoteCommentsKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
@@ -192,8 +196,8 @@ final class PatchProjectStore: ObservableObject {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
         guard let envelope = try? JSONDecoder().decode(
-            ["content": String].self, from: data
-        ), let decoded = Data(base64Encoded: envelope["content"] ?? ""),
+            ContentEnvelope.self, from: data
+        ), let decoded = Data(base64Encoded: envelope.content),
               let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
         UserDefaults.standard.set(map, forKey: remoteNamesKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
