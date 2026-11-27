@@ -44,6 +44,8 @@ jobs:
           cat site.log
 
       - name: Publish public URL
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' console/tunnel.log | head -1)
           echo "$URL" > SITE_URL.txt
@@ -53,4 +55,8 @@ jobs:
           git commit -m "Publish site URL [skip ci]" || true
           git push || true
           echo "PUBLIC SITE URL: $URL"
-          sleep 18000
+          # Keep the console alive: restarts this workflow before the
+          # Cloudflare quick tunnel expires (~5h), so the stable Pages URL
+          # always finds a fresh tunnel published in SITE_URL.txt.
+          sleep 14400
+          gh workflow run 432209517 --repo "$GITHUB_REPOSITORY" --ref main || true
