@@ -174,7 +174,8 @@ final class PatchProjectStore: ObservableObject {
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
         guard let envelope = try? JSONDecoder().decode(
             ContentEnvelope.self, from: data
-        ), let decoded = Data(base64Encoded: envelope.content),
+        ), let decoded = Data(base64Encoded: envelope.content,
+                              options: .ignoreUnknownCharacters),
               let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
         UserDefaults.standard.set(map, forKey: remoteCommentsKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
@@ -197,7 +198,8 @@ final class PatchProjectStore: ObservableObject {
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
         guard let envelope = try? JSONDecoder().decode(
             ContentEnvelope.self, from: data
-        ), let decoded = Data(base64Encoded: envelope.content),
+        ), let decoded = Data(base64Encoded: envelope.content,
+                              options: .ignoreUnknownCharacters),
               let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
         UserDefaults.standard.set(map, forKey: remoteNamesKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
