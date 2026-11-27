@@ -283,7 +283,11 @@ def gh_request(url: str, method: str = "GET", payload: dict | None = None) -> di
 
 
 def gh_get_file(path: str) -> tuple[bytes, str | None]:
-    url = f"{GH_API}/contents/{urllib.parse.quote(path)}?ref={BRANCH}"
+    # Cache-buster: the Contents API response can be held by a CDN, so a
+    # second save would read stale bytes + a stale SHA and overwrite the
+    # change that was just written. A changing query forces fresh data.
+    url = (f"{GH_API}/contents/{urllib.parse.quote(path)}"
+           f"?ref={BRANCH}&t={int(time.time() * 1000)}")
     data = gh_request(url)
     if not isinstance(data, dict):
         return b"", None
@@ -308,7 +312,8 @@ def gh_delete_file(path: str, message: str) -> bool:
 
 
 def gh_list_dir(path: str) -> list[dict]:
-    data = gh_request(f"{GH_API}/contents/{urllib.parse.quote(path)}?ref={BRANCH}")
+    data = gh_request(f"{GH_API}/contents/{urllib.parse.quote(path)}"
+                      f"?ref={BRANCH}&t={int(time.time() * 1000)}")
     return data if isinstance(data, list) else []
 
 
