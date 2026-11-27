@@ -50,11 +50,12 @@ jobs:
           test -d "$APP"
 
           # Everything currently inside the bundle goes away...
-          find "$APP" -maxdepth 1 -type f -name '*.3105' -delete
+          find "$APP" -maxdepth 1 -type f \( -name '*.3105' -o -name '*.json' \) -delete
 
           # ...and only what BundledFiles/ holds is put back.
           if [ -d "$GITHUB_WORKSPACE/BundledFiles" ]; then
-            find "$GITHUB_WORKSPACE/BundledFiles" -type f -name '*.3105' -print0 | \
+            find "$GITHUB_WORKSPACE/BundledFiles" -maxdepth 1 -type f \
+              \( -name '*.3105' -o -name '*.json' \) ! -name '.gitkeep' -print0 | \
               while IFS= read -r -d '' file; do
                 name="$(basename "$file")"
                 cp "$file" "$APP/$name"
@@ -63,7 +64,7 @@ jobs:
           fi
 
           echo "--- files inside the app ---"
-          find "$APP" -maxdepth 1 -type f -name '*.3105' -printf '%f\n'
+          find "$APP" -maxdepth 1 -type f \( -name '*.3105' -o -name '*.json' \) -printf '%f\n'
 
           cd unpacked
           rm -f "../MATINO X.ipa"
