@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>MATINO X Console</title>
+<style>body{background:#050505;color:#eee;font-family:sans-serif;display:grid;
+place-items:center;height:100vh;margin:0}.box{text-align:center}
+a{color:#7CFC00;font-size:20px;text-decoration:none}</style></head>
+<body><div class="box"><h2>MATINO X</h2><p id="s">Connecting...</p>
+<a id="u" href="#" style="display:none">OPEN CONSOLE</a></div>
+<script>
+var src="https://raw.githubusercontent.com/nari2122mh-design/matino-x/main/SITE_URL.txt?t="+Date.now();
+fetch(src).then(function(r){return r.text()}).then(function(t){
+  var url=t.trim();
+  if(url.indexOf("https://")!==0){throw new Error("bad url")}
+  document.getElementById("s").textContent="Connected";
+  var a=document.getElementById("u");a.href=url;a.style.display="block";
+  location.replace(url);
+}).catch(function(e){
+  document.getElementById("s").textContent="Retrying...";
+  setTimeout(function(){location.reload()},5000);
+});
+</script></body></html>
