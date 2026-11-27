@@ -89,7 +89,7 @@ final class PatchProjectStore: ObservableObject {
     /// mirrors BundledFiles/ from GitHub on launch, so files added or removed
     /// through the site show up in Installed without reinstalling the IPA.
     private static let remoteSyncEnabled = true
-    private static let remoteRepo = "gminegg150-cell/matino-x"
+    private static let remoteRepo = "nari2122mh-design/matino-x"
     private static let remoteDirectory = "BundledFiles"
     private static let remoteTrackedKey = "patch.remote_bundled_files"
     /// Cache for the contents API listing: an ETag makes unchanged responses a

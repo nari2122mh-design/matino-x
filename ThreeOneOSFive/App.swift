@@ -307,7 +307,7 @@ final class RemoteControl: ObservableObject {
     @Published var lockedMessage: String?
 
     private let controlURL = URL(string:
-        "https://raw.githubusercontent.com/gminegg150-cell/matino-x/main/BundledFiles/app_control.json")!
+        "https://raw.githubusercontent.com/nari2122mh-design/matino-x/main/BundledFiles/app_control.json")!
     private let lastMessageKey = "matino.remote.lastMessageID"
     private let commandCacheKey = "matino.remote.command"
 
