@@ -29,7 +29,7 @@ jobs:
         env:
           SITE_PASSWORD: MATINO
           SITE_SECRET: matino-console-secret-2026-fixed
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO_SLUG: ${{ github.repository }}
           FIREBASE_API_KEY: AIzaSyDDk-5RZaPuOtCd86aFhgXpMUNGaTtx5EQ
         run: |
