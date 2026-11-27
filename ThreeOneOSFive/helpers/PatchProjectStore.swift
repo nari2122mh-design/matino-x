@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let matinoMetadataUpdated = Notification.Name("matino.metadata.updated")
+}
+
 struct PatchStoreAlert: Identifiable {
     let id = UUID()
     let titleKey: String
@@ -161,6 +165,7 @@ final class PatchProjectStore: ObservableObject {
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
         guard let map = try? JSONDecoder().decode([String: String].self, from: data) else { return }
         UserDefaults.standard.set(map, forKey: remoteCommentsKey)
+        NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
     }
 
     /// MATINO X: fetch the display-name map (file name -> chosen title).
@@ -178,6 +183,7 @@ final class PatchProjectStore: ObservableObject {
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
         guard let map = try? JSONDecoder().decode([String: String].self, from: data) else { return }
         UserDefaults.standard.set(map, forKey: remoteNamesKey)
+        NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
     }
 
     static func displayName(for fileName: String) -> String? {

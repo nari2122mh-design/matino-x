@@ -915,13 +915,21 @@ private struct InjectFeedback: Identifiable {
 private struct PatchProjectRow: View {
     let item: PatchLibraryItem
     let language: AppLanguage
+    @State private var metadataVersion = 0
 
     var body: some View {
-        if InstalledScreenLayout.usesReferenceListStyle {
-            referenceRow
-        } else {
-            classicRow
+        Group {
+            if InstalledScreenLayout.usesReferenceListStyle {
+                referenceRow
+            } else {
+                classicRow
+            }
         }
+        // MATINO X: redraw when site-side comments/names are re-synced so the
+        // changed text appears immediately, not only after a full app restart.
+        .onReceive(NotificationCenter.default.publisher(
+            for: .matinoMetadataUpdated
+        )) { _ in metadataVersion += 1 }
     }
 
     /// MATINO X: reference-style row - plain text, no card, no icon:
