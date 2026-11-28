@@ -67,6 +67,8 @@ struct PatchProjectsView: View {
     @State private var showImporter = false
     @State private var showWallpaperImporter = false
     @State private var showCleaner = false
+    /// MATINO X: the green bell at the top right opens the notes page.
+    @State private var showNotes = false
     @State private var searchText = ""
     /// MATINO X: read-only display filter shown in the category tabs.
     /// 0 = "For You" (curated, non-MAX), 1 = "All Packages" (everything).
@@ -309,6 +311,16 @@ struct PatchProjectsView: View {
             }
             .navigationTitle(categoryFilter == nil ? language.text("tab.installed") : "")
             .navigationBarTitleDisplayMode(.inline)
+            // MATINO X: green bell, top right — opens the notes written from
+            // the secure console (BundledFiles/windows.json).
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    notesBellButton
+                }
+            }
+            .sheet(isPresented: $showNotes) {
+                MatinoNotesView()
+            }
             .sheet(isPresented: $showImporter) {
                 FileDocumentPicker(
                     allowedContentTypes: PatchPackagePickerPolicy.allowedContentTypes,
@@ -569,6 +581,34 @@ struct PatchProjectsView: View {
                 }
         }
         .accessibilityLabel(language.text("accessibility.open_settings"))
+    }
+
+    /// MATINO X: green bell button in the navigation bar (top right).
+    private var notesBellButton: some View {
+        Button {
+            showNotes = true
+        } label: {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.green)
+                .frame(width: 32, height: 32)
+                .background(AppTheme.consoleBackground, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(Color.green.opacity(0.55), lineWidth: 1)
+                }
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                        .overlay {
+                            Circle().strokeBorder(Color.black, lineWidth: 1.5)
+                        }
+                        .offset(x: 1, y: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Notes from the site")
     }
 
     private func consumeExternalImport() {
@@ -1715,4 +1755,184 @@ private struct PatchActivityView: UIViewControllerRepresentable {
         _ uiViewController: UIActivityViewController,
         context: Context
     ) {}
+}
+
+
+// MARK: - Green bell page: notes written from the secure console
+
+/// One entry of BundledFiles/windows.json, exactly as edited on the site.
+struct MatinoSiteNote: Identifiable, Decodable {
+    let title: String
+    let content: String
+    let ts: Double?
+    var id: String { title }
+}
+
+/// MATINO X: reads the console notes through the GitHub Contents API (the
+/// only source that is never CDN-stale), so anything saved on the site shows
+/// up on this page without rebuilding the IPA.
+@MainActor
+final class MatinoNotesStore: ObservableObject {
+    @Published private(set) var notes: [MatinoSiteNote] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var loadFailed = false
+
+    private struct ContentEnvelope: Decodable {
+        let content: String
+    }
+
+    private static let endpoint =
+        "https://api.github.com/repos/nari2122mh-design/matino-x/contents/BundledFiles/windows.json"
+
+    func refresh() async {
+        if notes.isEmpty { isLoading = true }
+        loadFailed = false
+        defer { isLoading = false }
+
+        guard var components = URLComponents(string: Self.endpoint) else { return }
+        components.queryItems = [
+            URLQueryItem(name: "ref", value: "main"),
+            URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
+        ]
+        guard let url = components.url else { return }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("matino-x-app", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 12
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                loadFailed = notes.isEmpty
+                return
+            }
+            if let decoded = Self.decode(data) {
+                notes = decoded
+            } else {
+                loadFailed = notes.isEmpty
+            }
+        } catch {
+            loadFailed = notes.isEmpty
+        }
+    }
+
+    private static func decode(_ data: Data) -> [MatinoSiteNote]? {
+        guard let envelope = try? JSONDecoder().decode(ContentEnvelope.self, from: data),
+              let raw = Data(base64Encoded: envelope.content, options: .ignoreUnknownCharacters)
+        else { return nil }
+
+        // Current format: [ { "title": …, "content": …, "ts": … }, … ]
+        if let list = try? JSONDecoder().decode([MatinoSiteNote].self, from: raw) {
+            return list
+                .filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .sorted { ($0.ts ?? 0) > ($1.ts ?? 0) }
+        }
+        // Legacy format kept by older consoles: { "TITLE": "content" }
+        if let dict = try? JSONDecoder().decode([String: String].self, from: raw) {
+            return dict
+                .filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map { MatinoSiteNote(title: $0.key, content: $0.value, ts: nil) }
+                .sorted { $0.title < $1.title }
+        }
+        return nil
+    }
+}
+
+/// MATINO X: the page opened by the green bell in the top right corner.
+struct MatinoNotesView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var store = MatinoNotesStore()
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if store.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if store.notes.isEmpty {
+                    emptyState
+                } else {
+                    List(store.notes) { note in
+                        noteRow(note)
+                    }
+                    .listStyle(.plain)
+                    .scrollIndicators(.hidden)
+                    .refreshable { await store.refresh() }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+            .navigationTitle("NOTES")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("CLOSE") { dismiss() }
+                        .font(.system(size: 14, weight: .bold))
+                }
+            }
+            .task { await store.refresh() }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bell.fill")
+                .font(.system(size: AppTheme.emptyIconSize, weight: .light))
+                .foregroundStyle(Color.green)
+            Text(store.loadFailed ? "Can't load notes" : "No notes yet")
+                .font(.system(size: 17, weight: .bold))
+            Text(store.loadFailed
+                 ? "Check your connection and pull down to retry."
+                 : "Anything added from the secure console appears here instantly.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func noteRow(_ note: MatinoSiteNote) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(note.title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                if let ts = note.ts, ts > 0 {
+                    Text(dateString(ts))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if !note.content.isEmpty {
+                Text(note.content)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(AppTheme.consoleBackground)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        }
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 6, leading: 18, bottom: 6, trailing: 18))
+    }
+
+    private func dateString(_ epoch: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd MMM · HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: epoch))
+    }
 }

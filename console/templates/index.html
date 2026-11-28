@@ -247,31 +247,31 @@
   <div class="grid">
     <section class="card">
       <h2>NEW WINDOW</h2>
-      <p class="sub">Enter anything — notes, links, text. Saved to the repo.</p>
+      <p class="sub">Type anything — it appears in the app behind the green bell (top right), instantly.</p>
       <form method="post" action="{{ url_for('window_save') }}">
         <input type="hidden" name="csrf" value="{{ csrf_token() }}">
         <label>TITLE</label>
-        <input name="title" required>
+        <input name="title" required maxlength="120">
         <label>CONTENT</label>
-        <textarea name="content" placeholder="Type anything..."></textarea>
+        <textarea name="content" maxlength="8000" placeholder="Type anything..."></textarea>
         <button type="submit">SAVE WINDOW</button>
       </form>
     </section>
     <section class="card">
       <h2>SAVED WINDOWS</h2>
-      <p class="sub">{{ windows|length }} window(s)</p>
+      <p class="sub">{{ windows|length }} window(s) · newest first</p>
       {% if windows %}
-        {% for title, content in windows.items() %}
+        {% for w in windows %}
         <div style="border:1px solid #ffffff18;border-radius:12px;padding:12px;margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <strong>{{ title }}</strong>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <strong>{{ w.title }}</strong>
             <form method="post" action="{{ url_for('window_delete') }}">
               <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-              <input type="hidden" name="title" value="{{ title }}">
+              <input type="hidden" name="title" value="{{ w.title }}">
               <button class="danger" type="submit" style="width:auto;margin:0;padding:5px 9px">DEL</button>
             </form>
           </div>
-          <pre style="white-space:pre-wrap;word-break:break-word;color:#aaa;font-size:12px;margin:8px 0 0">{{ content }}</pre>
+          <pre style="white-space:pre-wrap;word-break:break-word;color:#aaa;font-size:12px;margin:8px 0 0">{{ w.content }}</pre>
         </div>
         {% endfor %}
       {% else %}<div class="empty">No windows yet.</div>{% endif %}

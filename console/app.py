@@ -328,7 +328,42 @@ def load_json(path: str) -> dict:
         return {}
 
 
-def save_json(path: str, obj: dict, message: str) -> bool:
+def normalize_windows(obj) -> list[dict]:
+    """windows.json as a list of notes, newest first.
+
+    Current format : [{"title": …, "content": …, "ts": …}, …]
+    Legacy format  : {"TITLE": "content"}  (converted, keeps old notes visible)
+    """
+    out: list[dict] = []
+    if isinstance(obj, list):
+        for w in obj:
+            if not isinstance(w, dict):
+                continue
+            title = str(w.get("title", "")).strip()[:120]
+            if not title:
+                continue
+            try:
+                ts = float(w.get("ts") or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            out.append({
+                "title": title,
+                "content": str(w.get("content", ""))[:8000],
+                "ts": ts,
+            })
+    elif isinstance(obj, dict):
+        for title, content in obj.items():
+            out.append({"title": str(title)[:120],
+                        "content": str(content)[:8000], "ts": 0.0})
+    out.sort(key=lambda w: w["ts"], reverse=True)
+    return out
+
+
+def load_windows() -> list[dict]:
+    return normalize_windows(load_json("BundledFiles/windows.json"))
+
+
+def save_json(path: str, obj, message: str) -> bool:
     # Re-read the current SHA immediately before writing so a save that
     # follows another one never overwrites with a stale blob.
     _, sha = gh_get_file(path)
@@ -481,7 +516,7 @@ def index():
              if i.get("type") == "file" and i["name"].lower().endswith(".3105"))
         )
     keys = fs_list() if tab == "keys" else []
-    windows = load_json("BundledFiles/windows.json") if tab == "windows" else {}
+    windows = load_windows() if tab == "windows" else []
     control = load_json("BundledFiles/app_control.json") if tab == "control" else {}
     comments = load_json("BundledFiles/comments.json") if tab == "files" else {}
     names = load_json("BundledFiles/names.json") if tab == "files" else {}
@@ -606,18 +641,27 @@ def key_delete():
 
 @app.route("/window/save", methods=["POST"])
 def window_save():
+    """Create or update a note shown behind the green bell in the app."""
     if not logged_in():
         return redirect(url_for("index"))
-    title = safe_name(request.form.get("title", ""))
-    content = request.form.get("content", "")
-    if title == "file":
+    title = request.form.get("title", "").strip()[:120]
+    content = request.form.get("content", "")[:8000]
+    if not title:
         flash("Give the window a title.")
         return redirect(url_for("index", tab="windows"))
-    windows = load_json("BundledFiles/windows.json")
-    windows[title] = content[:8000]
+    windows = load_windows()
+    now = time.time()
+    for w in windows:
+        if w["title"].lower() == title.lower():
+            w["content"] = content
+            w["ts"] = now
+            break
+    else:
+        windows.insert(0, {"title": title, "content": content, "ts": now})
+    windows = windows[:60]
     ok = save_json("BundledFiles/windows.json", windows, "Update windows")
     audit("window_save", title)
-    flash("Window saved." if ok else "Save failed (check GH_TOKEN).")
+    flash(f"“{title}” saved." if ok else "Save failed (check GH_TOKEN).")
     return redirect(url_for("index", tab="windows"))
 
 
@@ -625,9 +669,8 @@ def window_save():
 def window_delete():
     if not logged_in():
         return redirect(url_for("index"))
-    title = safe_name(request.form.get("title", ""))
-    windows = load_json("BundledFiles/windows.json")
-    windows.pop(title, None)
+    title = request.form.get("title", "").strip()
+    windows = [w for w in load_windows() if w["title"] != title]
     save_json("BundledFiles/windows.json", windows, "Update windows")
     audit("window_delete", title)
     flash("Window deleted.")
