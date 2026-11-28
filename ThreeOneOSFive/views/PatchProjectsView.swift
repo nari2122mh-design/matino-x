@@ -584,23 +584,23 @@ struct PatchProjectsView: View {
         .accessibilityLabel(language.text("accessibility.open_settings"))
     }
 
-    /// MATINO X: green bell button in the navigation bar (top right).
+    /// MATINO X: white bell on a black circle in the navigation bar (top right).
     private var notesBellButton: some View {
         Button {
             showNotes = true
         } label: {
             Image(systemName: "bell.fill")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color.green)
+                .foregroundStyle(Color.white)
                 .frame(width: 32, height: 32)
-                .background(AppTheme.consoleBackground, in: Circle())
+                .background(Color.black, in: Circle())
                 .overlay {
                     Circle()
-                        .strokeBorder(Color.green.opacity(0.55), lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(0.75), lineWidth: 1)
                 }
                 .overlay(alignment: .topTrailing) {
                     Circle()
-                        .fill(Color.green)
+                        .fill(Color.white)
                         .frame(width: 8, height: 8)
                         .overlay {
                             Circle().strokeBorder(Color.black, lineWidth: 1.5)
@@ -1888,7 +1888,7 @@ struct MatinoNotesView: View {
         VStack(spacing: 10) {
             Image(systemName: "bell.fill")
                 .font(.system(size: AppTheme.emptyIconSize, weight: .light))
-                .foregroundStyle(Color.green)
+                .foregroundStyle(Color.white)
             Text(store.loadFailed ? "Can't load notes" : "No notes yet")
                 .font(.system(size: 17, weight: .bold))
             Text(store.loadFailed
