@@ -16,6 +16,7 @@ Hardening:
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -425,6 +426,42 @@ def save_json(path: str, obj, message: str) -> bool:
     return gh_request(f"{GH_API}/contents/{urllib.parse.quote(path)}", "PUT", payload) is not None
 
 
+# Serialized read-modify-write. Two saves a few seconds apart (two tabs, two
+# people) used to lose each other: each one read the file, changed its own
+# entry and wrote the whole map back. One lock + a short read-your-writes
+# cache makes consecutive saves keep every change.
+_json_lock = threading.Lock()
+_recent_writes: dict[str, tuple[float, object]] = {}
+_WRITE_CACHE_SECONDS = 12
+
+
+def update_json(path: str, mutate, message: str):
+    """(ok, obj). mutate(obj) returns the object to store, or None to abort.
+    Abort also happens when GitHub cannot be read — writing what we failed to
+    read would wipe the stored data."""
+    with _json_lock:
+        obj, status = load_json_ex(path)
+        cached = _recent_writes.get(path)
+        if cached and time.time() - cached[0] < _WRITE_CACHE_SECONDS:
+            # GitHub's contents API can still answer with the blob from just
+            # before our own last PUT (CDN lag); our memory is newer.
+            obj = copy.deepcopy(cached[1])
+        elif obj is None:
+            app.logger.error("update_json %s: read failed (status=%s)", path, status)
+            return False, None
+        try:
+            new_obj = mutate(obj)
+        except Exception as e:
+            app.logger.error("update_json %s: %s", path, e)
+            return False, None
+        if new_obj is None:
+            return False, None
+        if not save_json(path, new_obj, message):
+            return False, None
+        _recent_writes[path] = (time.time(), copy.deepcopy(new_obj))
+        return True, new_obj
+
+
 def latest_build_id() -> str:
     """Build id of the newest IPA, written by the build workflow."""
     raw, _ = gh_get_file("latest_build.txt")
@@ -626,26 +663,36 @@ def file_meta():
     comment = request.form.get("comment", "").strip()[:300]
     display = request.form.get("display_name", "").strip()[:100]
 
-    comments, st_c = load_json_ex("BundledFiles/comments.json")
-    names, st_n = load_json_ex("BundledFiles/names.json")
-    # A read that failed (None) must never be saved: it would wipe every
-    # comment / display name already stored on the site.
-    if not isinstance(comments, dict) or not isinstance(names, dict):
-        flash("GitHub did not answer — nothing was changed. Please retry.")
-        return redirect(url_for("index", tab="files"))
     # Keep both key forms in sync so lookup works with or without extension.
     stem = name.rsplit(".", 1)[0]
-    for key in (name, stem):
-        comments.pop(key, None)
-        names.pop(key, None)
-    if comment:
-        comments[name] = comment
-    if display:
-        names[name] = display
-    ok_c = save_json("BundledFiles/comments.json", comments, "Update comments")
-    ok_n = save_json("BundledFiles/names.json", names, "Update display names")
+
+    def comment_mutate(obj):
+        if not isinstance(obj, dict):
+            raise ValueError("comments.json is not an object")
+        for key in (name, stem):
+            obj.pop(key, None)
+        if comment:
+            obj[name] = comment
+        return obj
+
+    def name_mutate(obj):
+        if not isinstance(obj, dict):
+            raise ValueError("names.json is not an object")
+        for key in (name, stem):
+            obj.pop(key, None)
+        if display:
+            obj[name] = display
+        return obj
+
+    # update_json holds one lock per file and refuses to write anything it
+    # could not read, so a failed GitHub read never wipes the stored values.
+    ok_c, _ = update_json("BundledFiles/comments.json", comment_mutate, "Update comments")
+    ok_n, _ = update_json("BundledFiles/names.json", name_mutate, "Update display names")
     audit("file_meta", f"{name} comment={bool(comment)} name={bool(display)}", alert=True)
-    flash("Saved." if (ok_c and ok_n) else "Save failed (check GH_TOKEN).")
+    if ok_c and ok_n:
+        flash("Saved.")
+    else:
+        flash("Save failed (GitHub did not answer) — please retry.")
     return redirect(url_for("index", tab="files"))
 
 
@@ -708,16 +755,23 @@ def window_save():
     if windows is None:
         flash("GitHub did not answer — nothing was changed. Please retry.")
         return redirect(url_for("index", tab="windows"))
-    now = time.time()
-    for w in windows:
-        if w["title"].lower() == title.lower():
-            w["content"] = content
-            w["ts"] = now
-            break
-    else:
-        windows.insert(0, {"title": title, "content": content, "ts": now})
-    windows = windows[:60]
-    ok = save_json("BundledFiles/windows.json", windows, "Update windows")
+
+    def mutate(obj):
+        if not isinstance(obj, (list, dict)):
+            raise ValueError("windows.json has an unexpected shape")
+        rows = normalize_windows(obj)
+        now = time.time()
+        for w in rows:
+            if w["title"].lower() == title.lower():
+                w["content"] = content
+                w["ts"] = now
+                break
+        else:
+            rows.insert(0, {"title": title, "content": content, "ts": now})
+        rows.sort(key=lambda w: w["ts"], reverse=True)
+        return rows[:60]
+
+    ok, _ = update_json("BundledFiles/windows.json", mutate, "Update windows")
     audit("window_save", title)
     flash(f"“{title}” saved." if ok else "Save failed (check GH_TOKEN).")
     return redirect(url_for("index", tab="windows"))
@@ -728,14 +782,15 @@ def window_delete():
     if not logged_in():
         return redirect(url_for("index"))
     title = request.form.get("title", "").strip()
-    windows, status = load_windows()
-    if windows is None:
-        flash("GitHub did not answer — nothing was deleted. Please retry.")
-        return redirect(url_for("index", tab="windows"))
-    windows = [w for w in windows if w["title"] != title]
-    save_json("BundledFiles/windows.json", windows, "Update windows")
+
+    def mutate(obj):
+        if not isinstance(obj, (list, dict)):
+            raise ValueError("windows.json has an unexpected shape")
+        return [w for w in normalize_windows(obj) if w["title"] != title]
+
+    ok, _ = update_json("BundledFiles/windows.json", mutate, "Update windows")
     audit("window_delete", title)
-    flash("Window deleted.")
+    flash("Window deleted." if ok else "Delete failed (GitHub did not answer) — nothing changed.")
     return redirect(url_for("index", tab="windows"))
 
 
@@ -748,9 +803,13 @@ def control_save():
     if sound not in ("none", "tap", "applied", "restored"):
         sound = "none"
     disabled = request.form.get("disabled") == "1"
+    # Locking is opt-in: without the checkbox the app never gets a build
+    # lock, so an older IPA keeps working and no banner interrupts the user.
+    lock_old = request.form.get("lock_old") == "1"
+    locked_to = latest_build_id() if lock_old else ""
     payload = {
-        "activeBuildID": latest_build_id(),
-        "targetBuildID": latest_build_id(),
+        "activeBuildID": locked_to,
+        "targetBuildID": locked_to,
         "message": message,
         "updateMessage": request.form.get("update_message", "").strip()[:1000],
         "messageID": secrets.token_hex(8),
@@ -758,7 +817,7 @@ def control_save():
         "disabled": disabled,
     }
     ok = save_json("BundledFiles/app_control.json", payload, "Update app control")
-    audit("app_control", f"msg={bool(message)} sound={sound} disabled={disabled}", alert=True)
+    audit("app_control", f"msg={bool(message)} sound={sound} disabled={disabled} lock={lock_old}", alert=True)
     flash("App control saved." if ok else "Save failed (check GH_TOKEN).")
     return redirect(url_for("index", tab="control"))
 

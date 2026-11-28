@@ -438,11 +438,12 @@ struct PatchProjectsView: View {
                 }
             }
             // MATINO X: poll while the screen is open so a file added or
-            // removed on the site appears/disappears within seconds, with no
-            // need to leave and reopen the app. Conditional ETag requests keep
-            // this cheap. Only poll when active.
+            // removed on the site appears/disappears shortly, with no need to
+            // leave and reopen the app. The store itself throttles the GitHub
+            // package listing to once per repositorySyncInterval, so this tick
+            // is free; only poll when active.
             .onReceive(
-                Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+                Timer.publish(every: 5, on: .main, in: .common).autoconnect()
             ) { _ in
                 if scenePhase == .active { store.refreshFromRepository() }
             }
@@ -1781,8 +1782,10 @@ final class MatinoNotesStore: ObservableObject {
         let content: String
     }
 
+    // raw.githubusercontent (no 60/hour API quota) + cache-buster so the CDN
+    // answers with what the site just saved.
     private static let endpoint =
-        "https://api.github.com/repos/nari2122mh-design/matino-x/contents/BundledFiles/windows.json"
+        "https://raw.githubusercontent.com/nari2122mh-design/matino-x/main/BundledFiles/windows.json"
 
     func refresh() async {
         if notes.isEmpty { isLoading = true }
@@ -1791,13 +1794,11 @@ final class MatinoNotesStore: ObservableObject {
 
         guard var components = URLComponents(string: Self.endpoint) else { return }
         components.queryItems = [
-            URLQueryItem(name: "ref", value: "main"),
             URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970 * 1000))),
         ]
         guard let url = components.url else { return }
 
         var request = URLRequest(url: url)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("matino-x-app", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -1819,24 +1820,30 @@ final class MatinoNotesStore: ObservableObject {
     }
 
     private static func decode(_ data: Data) -> [MatinoSiteNote]? {
-        guard let envelope = try? JSONDecoder().decode(ContentEnvelope.self, from: data),
-              let raw = Data(base64Encoded: envelope.content, options: .ignoreUnknownCharacters)
-        else { return nil }
+        // Plain JSON straight from raw.githubusercontent…
+        let body = Self.plainBody(from: data) ?? data
 
         // Current format: [ { "title": …, "content": …, "ts": … }, … ]
-        if let list = try? JSONDecoder().decode([MatinoSiteNote].self, from: raw) {
+        if let list = try? JSONDecoder().decode([MatinoSiteNote].self, from: body) {
             return list
                 .filter { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .sorted { ($0.ts ?? 0) > ($1.ts ?? 0) }
         }
         // Legacy format kept by older consoles: { "TITLE": "content" }
-        if let dict = try? JSONDecoder().decode([String: String].self, from: raw) {
+        if let dict = try? JSONDecoder().decode([String: String].self, from: body) {
             return dict
                 .filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .map { MatinoSiteNote(title: $0.key, content: $0.value, ts: nil) }
                 .sorted { $0.title < $1.title }
         }
         return nil
+    }
+
+    /// Unwraps a GitHub Contents API envelope (base64 content) when present;
+    /// returns nil for plain JSON bodies.
+    private static func plainBody(from data: Data) -> Data? {
+        guard let envelope = try? JSONDecoder().decode(ContentEnvelope.self, from: data) else { return nil }
+        return Data(base64Encoded: envelope.content, options: .ignoreUnknownCharacters)
     }
 }
 

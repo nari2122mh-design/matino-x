@@ -42,12 +42,15 @@ final class PatchProjectStore: ObservableObject {
     private var pendingUnlock: PendingUnlock?
     private var lastRepositorySync: Date?
 
-    /// MATINO X: minimum gap between two repository syncs. Kept short so a
-    /// deletion made on the site shows up quickly when returning to the app.
-    private static let repositorySyncInterval: TimeInterval = 1
     /// Names removed from the repository, so the bundle import does not bring
     /// them back on the next launch.
     private static let remoteRemovedKey = "patch.remote_removed_files"
+    /// Minimum gap between two repository syncs. The package listing is the
+    /// only call left that costs GitHub API quota (60/hour, anonymous, 304s
+    /// included), so it is throttled to ~40 calls/hour with room for the app's
+    /// other occasional API reads — comments/names and the notes page are read
+    /// from raw files and do not count against it.
+    private static let repositorySyncInterval: TimeInterval = 90
 
     init() {
         isBusy = true
@@ -102,13 +105,14 @@ final class PatchProjectStore: ObservableObject {
     private static let remoteListCacheKey = "patch.remote_list_cache"
     /// MATINO X: comments file mirrored from BundledFiles/comments.json.
     private static let remoteCommentsKey = "patch.remote_comments"
-    // GitHub Contents API instead of raw.githubusercontent: raw is cached by
-    // a CDN for minutes, so a comment/name changed on the site would not show
-    // up in the app. The API always returns the current blob.
-    private static let remoteCommentsURL = "https://api.github.com/repos/\(remoteRepo)/contents/\(remoteDirectory)/comments.json?ref=main"
+    // raw.githubusercontent instead of the Contents API: the API allows only
+    // 60 anonymous requests/hour (304s included) and the app would exhaust it
+    // in minutes. raw has no quota, and the cache-buster query forces the CDN
+    // to serve the current bytes (verified against the API).
+    private static let remoteCommentsURL = "https://raw.githubusercontent.com/\(remoteRepo)/main/\(remoteDirectory)/comments.json"
     /// MATINO X: display names mirrored from BundledFiles/names.json.
     private static let remoteNamesKey = "patch.remote_names"
-    private static let remoteNamesURL = "https://api.github.com/repos/\(remoteRepo)/contents/\(remoteDirectory)/names.json?ref=main"
+    private static let remoteNamesURL = "https://raw.githubusercontent.com/\(remoteRepo)/main/\(remoteDirectory)/names.json"
 
     private struct ContentEnvelope: Decodable {
         let content: String
@@ -157,51 +161,44 @@ final class PatchProjectStore: ObservableObject {
     /// MATINO X: fetch the comments map (file name -> description) so the
     /// Installed rows can show a line under each file name.
     private nonisolated static func syncCommentsFromGitHub() async {
-        guard remoteSyncEnabled,
-              var components = URLComponents(string: remoteCommentsURL) else { return }
-        // Cache-buster: raw.githubusercontent is served by a CDN that can keep
-        // a stale comments.json for a while; a changing query forces fresh bytes.
-        components.queryItems = [URLQueryItem(
-            name: "t", value: String(Int(Date().timeIntervalSince1970))
-        )]
-        guard let url = components.url else { return }
-        var request = URLRequest(url: url)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("matino-x-app", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 10
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-        guard let envelope = try? JSONDecoder().decode(
-            ContentEnvelope.self, from: data
-        ), let decoded = Data(base64Encoded: envelope.content,
-                              options: .ignoreUnknownCharacters),
-              let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
-        UserDefaults.standard.set(map, forKey: remoteCommentsKey)
-        NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
+        await syncStringMap(urlString: remoteCommentsURL, defaultsKey: remoteCommentsKey)
     }
 
     /// MATINO X: fetch the display-name map (file name -> chosen title).
     private nonisolated static func syncNamesFromGitHub() async {
+        await syncStringMap(urlString: remoteNamesURL, defaultsKey: remoteNamesKey)
+    }
+
+    /// Shared reader for the two metadata maps. Accepts both the plain JSON
+    /// served by raw.githubusercontent and the base64 Contents-API envelope,
+    /// so either transport can be used without a rebuild.
+    private nonisolated static func syncStringMap(urlString: String, defaultsKey: String) async {
         guard remoteSyncEnabled,
-              var components = URLComponents(string: remoteNamesURL) else { return }
+              var components = URLComponents(string: urlString) else { return }
+        // Cache-buster: a changing query forces the CDN to answer with the
+        // bytes written by the site, not with a snapshot from minutes ago.
         components.queryItems = [URLQueryItem(
             name: "t", value: String(Int(Date().timeIntervalSince1970))
         )]
         guard let url = components.url else { return }
         var request = URLRequest(url: url)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("matino-x-app", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
         request.cachePolicy = .reloadIgnoringLocalCacheData
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-        guard let envelope = try? JSONDecoder().decode(
-            ContentEnvelope.self, from: data
-        ), let decoded = Data(base64Encoded: envelope.content,
-                              options: .ignoreUnknownCharacters),
-              let map = try? JSONDecoder().decode([String: String].self, from: decoded) else { return }
-        UserDefaults.standard.set(map, forKey: remoteNamesKey)
+
+        var map: [String: String]? = try? JSONDecoder().decode(
+            [String: String].self, from: data
+        )
+        if map == nil,
+           let envelope = try? JSONDecoder().decode(ContentEnvelope.self, from: data),
+           let decoded = Data(base64Encoded: envelope.content,
+                              options: .ignoreUnknownCharacters) {
+            map = try? JSONDecoder().decode([String: String].self, from: decoded)
+        }
+        guard let map else { return }
+        UserDefaults.standard.set(map, forKey: defaultsKey)
         NotificationCenter.default.post(name: .matinoMetadataUpdated, object: nil)
     }
 

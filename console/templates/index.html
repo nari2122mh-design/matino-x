@@ -212,9 +212,9 @@
       <p class="sub">The message appears directly inside the IPA, with an optional sound.</p>
       <form method="post" action="{{ url_for('control_save') }}">
         <input type="hidden" name="csrf" value="{{ csrf_token() }}">
-        <label>MESSAGE (for the latest IPA)</label>
+        <label>MESSAGE (for the latest IPA) — leave empty + SEND TO APP to remove the popup</label>
         <textarea name="message" placeholder="Type the message the app owner will see...">{{ control.get('message','') }}</textarea>
-        <label>UPDATE MESSAGE (shown on old IPAs)</label>
+        <label>UPDATE MESSAGE (shown only when the lock below is on)</label>
         <textarea name="update_message" placeholder="You must update MATINO X to the latest version.">{{ control.get('updateMessage','') }}</textarea>
         <label>SOUND</label>
         <select name="sound">
@@ -225,6 +225,10 @@
         </select>
         <label class="sub" style="display:flex;gap:8px;align-items:center;margin-top:14px">
           <input type="checkbox" name="disabled" value="1" style="width:auto" {{ 'checked' if control.get('disabled') }}> Disable every installed app
+        </label>
+        <label class="sub" style="display:flex;gap:8px;align-items:center;margin-top:10px">
+          <input type="checkbox" name="lock_old" value="1" style="width:auto" {{ 'checked' if control.get('activeBuildID') }}>
+          Lock older IPAs (they show “update required” until reinstalled)
         </label>
         <button type="submit">SEND TO APP</button>
       </form>
