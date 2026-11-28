@@ -806,10 +806,15 @@ def control_save():
     # Locking is opt-in: without the checkbox the app never gets a build
     # lock, so an older IPA keeps working and no banner interrupts the user.
     lock_old = request.form.get("lock_old") == "1"
-    locked_to = latest_build_id() if lock_old else ""
+    # activeBuildID forces old IPAs to update (only with the explicit lock).
+    # targetBuildID is the gate for the popup: without it the app ignores the
+    # message entirely, so set it when a message exists (or when locked) to
+    # deliver the message to the current IPA only — never a forced lock.
+    need_target = lock_old or bool(message)
+    target = latest_build_id() if need_target else ""
     payload = {
-        "activeBuildID": locked_to,
-        "targetBuildID": locked_to,
+        "activeBuildID": latest_build_id() if lock_old else "",
+        "targetBuildID": target,
         "message": message,
         "updateMessage": request.form.get("update_message", "").strip()[:1000],
         "messageID": secrets.token_hex(8),
