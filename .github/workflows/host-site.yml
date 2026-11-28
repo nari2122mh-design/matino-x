@@ -3,6 +3,13 @@ name: Host MATINO Console
 on:
   workflow_dispatch:
 
+# Only one tunnel should own SITE_URL.txt at a time. Old runs sleep for 4h
+# to keep their tunnel alive; a newer run must cancel them, otherwise two
+# tunnels race to publish the URL and the site serves an outdated console.
+concurrency:
+  group: matino-x-host-site
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -53,6 +60,8 @@ jobs:
           git config user.email "bot@users.noreply.github.com"
           git add SITE_URL.txt
           git commit -m "Publish site URL [skip ci]" || true
+          git fetch origin main || true
+          git -c rebase.autoStash=true rebase origin/main || true
           git push || true
           echo "PUBLIC SITE URL: $URL"
           # Keep the console alive: restarts this workflow before the
