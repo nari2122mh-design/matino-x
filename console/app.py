@@ -282,16 +282,40 @@ def gh_request(url: str, method: str = "GET", payload: dict | None = None) -> di
         return None
 
 
-def gh_get_file(path: str) -> tuple[bytes, str | None]:
-    # Cache-buster: the Contents API response can be held by a CDN, so a
-    # second save would read stale bytes + a stale SHA and overwrite the
-    # change that was just written. A changing query forces fresh data.
+def gh_get_file_ex(path: str) -> tuple[bytes, str | None, int]:
+    """(content, sha, status). status: 200 = ok, 404 = missing file,
+    anything else = GitHub did not answer. Callers must treat "not 200/404"
+    as *unknown* and never save, otherwise a failed read would wipe the file.
+    """
     url = (f"{GH_API}/contents/{urllib.parse.quote(path)}"
            f"?ref={BRANCH}&t={int(time.time() * 1000)}")
-    data = gh_request(url)
+    req = urllib.request.Request(url, headers=gh_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            raw = r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:  # a missing file is a normal case (not an error)
+            return b"", None, 404
+        app.logger.error("GitHub GET %s -> %s: %s", path, e.code, e.read()[:200])
+        return b"", None, e.code
+    except Exception as e:  # network
+        app.logger.error("GitHub GET %s failed: %s", path, e)
+        return b"", None, 0
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return b"", None, 0
     if not isinstance(data, dict):
-        return b"", None
-    return base64.b64decode(data.get("content", "")), data.get("sha")
+        return b"", None, 0
+    try:
+        return base64.b64decode(data.get("content", "")), data.get("sha"), 200
+    except Exception:
+        return b"", data.get("sha"), 0
+
+
+def gh_get_file(path: str) -> tuple[bytes, str | None]:
+    content, sha, _ = gh_get_file_ex(path)
+    return content, sha
 
 
 def gh_put_file(path: str, content: bytes, message: str) -> bool:
@@ -317,15 +341,27 @@ def gh_list_dir(path: str) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def load_json(path: str) -> dict:
-    raw, _ = gh_get_file(path)
+def load_json_ex(path: str):
+    """(parsed, status). parsed is None when the file could NOT be read —
+    callers must abort instead of saving an empty object over it."""
+    raw, _, status = gh_get_file_ex(path)
+    if status not in (200, 404):
+        return None, status
     if not raw:
-        return {}
+        return {}, status
     try:
-        obj = json.loads(raw.decode())
-        return obj if isinstance(obj, dict) else {}
+        return json.loads(raw.decode()), status
     except Exception:
+        return None, 0
+
+
+def load_json(path: str) -> dict:
+    obj, _ = load_json_ex(path)
+    if isinstance(obj, dict):
+        return obj
+    if isinstance(obj, list):
         return {}
+    return {}
 
 
 def normalize_windows(obj) -> list[dict]:
@@ -359,14 +395,24 @@ def normalize_windows(obj) -> list[dict]:
     return out
 
 
-def load_windows() -> list[dict]:
-    return normalize_windows(load_json("BundledFiles/windows.json"))
+def load_windows() -> tuple[list[dict] | None, int]:
+    """(notes, status). notes is None when the file could not be read —
+    the caller must abort, never save, or the notes would be wiped."""
+    obj, status = load_json_ex("BundledFiles/windows.json")
+    if obj is None:
+        return None, status
+    return normalize_windows(obj), status
 
 
 def save_json(path: str, obj, message: str) -> bool:
     # Re-read the current SHA immediately before writing so a save that
-    # follows another one never overwrites with a stale blob.
-    _, sha = gh_get_file(path)
+    # follows another one never overwrites with a stale blob. If GitHub does
+    # not answer, refuse to write: without a SHA the PUT would be rejected
+    # anyway (422), and guessing here could wipe the stored data.
+    _, sha, status = gh_get_file_ex(path)
+    if status not in (200, 404):
+        app.logger.error("save_json %s aborted, read status=%s", path, status)
+        return False
     payload = {
         "message": message + " [skip ci]",
         "content": base64.b64encode(
@@ -516,7 +562,11 @@ def index():
              if i.get("type") == "file" and i["name"].lower().endswith(".3105"))
         )
     keys = fs_list() if tab == "keys" else []
-    windows = load_windows() if tab == "windows" else []
+    windows = []
+    if tab == "windows":
+        windows, _ = load_windows()
+        if windows is None:
+            windows = []
     control = load_json("BundledFiles/app_control.json") if tab == "control" else {}
     comments = load_json("BundledFiles/comments.json") if tab == "files" else {}
     names = load_json("BundledFiles/names.json") if tab == "files" else {}
@@ -576,8 +626,13 @@ def file_meta():
     comment = request.form.get("comment", "").strip()[:300]
     display = request.form.get("display_name", "").strip()[:100]
 
-    comments = load_json("BundledFiles/comments.json")
-    names = load_json("BundledFiles/names.json")
+    comments, st_c = load_json_ex("BundledFiles/comments.json")
+    names, st_n = load_json_ex("BundledFiles/names.json")
+    # A read that failed (None) must never be saved: it would wipe every
+    # comment / display name already stored on the site.
+    if not isinstance(comments, dict) or not isinstance(names, dict):
+        flash("GitHub did not answer — nothing was changed. Please retry.")
+        return redirect(url_for("index", tab="files"))
     # Keep both key forms in sync so lookup works with or without extension.
     stem = name.rsplit(".", 1)[0]
     for key in (name, stem):
@@ -649,7 +704,10 @@ def window_save():
     if not title:
         flash("Give the window a title.")
         return redirect(url_for("index", tab="windows"))
-    windows = load_windows()
+    windows, status = load_windows()
+    if windows is None:
+        flash("GitHub did not answer — nothing was changed. Please retry.")
+        return redirect(url_for("index", tab="windows"))
     now = time.time()
     for w in windows:
         if w["title"].lower() == title.lower():
@@ -670,7 +728,11 @@ def window_delete():
     if not logged_in():
         return redirect(url_for("index"))
     title = request.form.get("title", "").strip()
-    windows = [w for w in load_windows() if w["title"] != title]
+    windows, status = load_windows()
+    if windows is None:
+        flash("GitHub did not answer — nothing was deleted. Please retry.")
+        return redirect(url_for("index", tab="windows"))
+    windows = [w for w in windows if w["title"] != title]
     save_json("BundledFiles/windows.json", windows, "Update windows")
     audit("window_delete", title)
     flash("Window deleted.")
