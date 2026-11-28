@@ -1,8 +1,9 @@
 {
-  "activeBuildID": "",
-  "message": "",
-  "messageID": "47bc2a8545bc4d52",
+  "activeBuildID": "46081115356",
+  "targetBuildID": "46081115356",
+  "message": "T7F56F",
+  "updateMessage": "",
+  "messageID": "81ad35c37018bff1",
   "sound": "none",
-  "disabled": false,
-  "targetBuildID": ""
+  "disabled": false
 }
