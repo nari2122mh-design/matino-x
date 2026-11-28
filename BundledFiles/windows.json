@@ -1,3 +1,12 @@
-{
-  "TEST": ""
-}
+[
+  {
+    "title": "BELL-TEST",
+    "content": "Note written from the console -> green bell page.",
+    "ts": 1795825587.186267
+  },
+  {
+    "title": "TEST",
+    "content": "",
+    "ts": 0.0
+  }
+]
