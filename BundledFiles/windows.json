@@ -1,5 +1,10 @@
 [
   {
+    "title": "BETA",
+    "content": "second note",
+    "ts": 1795826463.9031355
+  },
+  {
     "title": "ALPHA",
     "content": "first note",
     "ts": 1795826460.000456
